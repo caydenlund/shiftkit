@@ -15,3 +15,4 @@
 )]
 
 pub mod grammar;
+pub mod parse_table;

@@ -21,6 +21,9 @@ pub enum GrammarSymbol<T: Symbol, N: Symbol> {
 
     /// A grammar rule (e.g., Expr, Term)
     NonTerminal(N),
+
+    /// A special end-of-file token
+    EndOfFile,
 }
 
 /// A unique identifier for a symbol (either terminal or non-terminal)
@@ -77,15 +80,18 @@ impl<T: Symbol, N: Symbol> Grammar<T, N> {
     /// Creates a new, empty grammar
     ///
     /// # Returns
-    /// A fresh `Grammar` instance with no symbols or rules.
+    /// A fresh `Grammar` instance with no symbols or rules
     #[must_use]
     pub fn new() -> Self {
-        Self {
+        let mut g = Self {
             symbols: Vec::new(),
             rules: Vec::new(),
             start: None,
             symbol_map: HashMap::new(),
-        }
+        };
+        // Add the end-of-file symbol with ID 0
+        g.add_symbol(GrammarSymbol::EndOfFile);
+        g
     }
 
     /// Adds a new symbol to the grammar
@@ -94,10 +100,10 @@ impl<T: Symbol, N: Symbol> Grammar<T, N> {
     /// Otherwise, it is inserted and assigned a new ID.
     ///
     /// # Parameters
-    /// - `sym`: The symbol to add to the grammar.
+    /// - `sym`: The symbol to add to the grammar
     ///
     /// # Returns
-    /// A `SymbolId` for the added or existing symbol.
+    /// A `SymbolId` for the added or existing symbol
     pub fn add_symbol(&mut self, sym: GrammarSymbol<T, N>) -> SymbolId {
         if let Some(&id) = self.symbol_map.get(&sym) {
             return id;
@@ -119,10 +125,10 @@ impl<T: Symbol, N: Symbol> Grammar<T, N> {
     /// Otherwise, it is inserted and assigned a new ID.
     ///
     /// # Parameters
-    /// - `term`: The terminal symbol to add to the grammar.
+    /// - `term`: The terminal symbol to add to the grammar
     ///
     /// # Returns
-    /// A `SymbolId` for the added or existing terminal symbol.
+    /// A `SymbolId` for the added or existing terminal symbol
     pub fn add_terminal(&mut self, term: T) -> SymbolId {
         self.add_symbol(GrammarSymbol::Terminal(term))
     }
@@ -133,10 +139,10 @@ impl<T: Symbol, N: Symbol> Grammar<T, N> {
     /// Otherwise, it is inserted and assigned a new ID.
     ///
     /// # Parameters
-    /// - `non_term`: The non-terminal symbol to add to the grammar.
+    /// - `non_term`: The non-terminal symbol to add to the grammar
     ///
     /// # Returns
-    /// A `SymbolId` for the added or existing symbol.
+    /// A `SymbolId` for the added or existing symbol
     pub fn add_non_terminal(&mut self, non_term: N) -> SymbolId {
         self.add_symbol(GrammarSymbol::NonTerminal(non_term))
     }
@@ -144,11 +150,11 @@ impl<T: Symbol, N: Symbol> Grammar<T, N> {
     /// Adds a production rule to a non-terminal symbol
     ///
     /// # Parameters
-    /// - `non_terminal`: The `SymbolId` of a non-terminal symbol.
-    /// - `production`: A slice of `SymbolId`s representing the right-hand side of the rule.
+    /// - `non_terminal`: The `SymbolId` of a non-terminal symbol
+    /// - `production`: A slice of `SymbolId`s representing the right-hand side of the rule
     ///
     /// # Panics
-    /// If the given `non_terminal` ID does not refer to a non-terminal symbol.
+    /// If the given `non_terminal` ID does not refer to a non-terminal symbol
     pub fn add_rule(&mut self, non_terminal: SymbolId, production: &[SymbolId]) {
         assert!(
             matches!(
@@ -175,10 +181,10 @@ impl<T: Symbol, N: Symbol> Grammar<T, N> {
     /// Sets the given symbol as the "start" symbol
     ///
     /// # Parameters
-    /// - `non_terminal`: The `SymbolId` of a non-terminal symbol.
+    /// - `non_terminal`: The `SymbolId` of a non-terminal symbol
     ///
     /// # Panics
-    /// If the given `non_terminal` ID does not refer to a non-terminal symbol.
+    /// If the given `non_terminal` ID does not refer to a non-terminal symbol
     pub fn set_start(&mut self, non_terminal: SymbolId) {
         self.start = Some(non_terminal);
     }
