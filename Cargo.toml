@@ -1,6 +1,13 @@
 [package]
 name = "shiftkit"
 version = "0.1.0"
-edition = "2024"
-
-[dependencies]
+edition = "2021"
+authors = ["Cayden Lund <caydenlund@gmail.com>"]
+description = "A quick & easy parser generator"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/caydenlund/shiftkit"
+homepage = "https://github.com/caydenlund/shiftkit"
+documentation = "https://docs.rs/shiftkit"
+readme = "README.md"
+keywords = ["parser", "lalr", "lr", "compiler", "syntax"]
+categories = ["compilers", "parsing", "data-structures"]
