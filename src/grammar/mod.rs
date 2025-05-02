@@ -8,15 +8,19 @@
 //! of sequences of symbol IDs representing grammar productions.
 
 use std::collections::HashMap;
+use std::hash::Hash;
 
-/// The kind of a grammar symbol---either a terminal (token) or non-terminal (grammar rule)
+/// Describes a datatype that can be used as a grammar symbol
+pub trait Symbol: Clone + Eq + PartialEq + Hash {}
+
+/// A grammar symbol: either a terminal (token) or non-terminal (grammar production)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SymbolKind {
+pub enum GrammarSymbol<T: Symbol, N: Symbol> {
     /// A token or literal input symbol (e.g., "+", "num")
-    Terminal,
+    Terminal(T),
 
     /// A grammar rule (e.g., Expr, Term)
-    NonTerminal,
+    NonTerminal(N),
 }
 
 /// A unique identifier for a symbol (either terminal or non-terminal)
@@ -31,20 +35,31 @@ pub type SymbolId = usize;
 ///
 /// # Example
 /// ```
-/// # use shiftkit::grammar::{Grammar, SymbolKind};
+/// # use shiftkit::grammar::{Grammar, Symbol};
+/// #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// enum Terminal {
+///     Plus,
+///     Number,
+/// }
+/// impl Symbol for Terminal {}
+/// #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// enum NonTerminal {
+///     Expr,
+/// }
+/// impl Symbol for NonTerminal {}
 /// let mut grammar = Grammar::new();
-/// let n_expr = grammar.add_symbol(SymbolKind::NonTerminal, "Expr");
-/// let t_plus = grammar.add_symbol(SymbolKind::Terminal, "+");
-/// let t_num = grammar.add_symbol(SymbolKind::Terminal, "num");
-/// grammar.add_rule(n_expr, &[n_expr, t_plus, n_expr]);
-/// grammar.add_rule(n_expr, &[t_num]);
+/// let n_expr_id = grammar.add_non_terminal(NonTerminal::Expr);
+/// let t_plus_id = grammar.add_terminal(Terminal::Plus);
+/// let t_num_id = grammar.add_terminal(Terminal::Number);
+/// grammar.add_rule(n_expr_id, &[n_expr_id, t_plus_id, n_expr_id]);
+/// grammar.add_rule(n_expr_id, &[t_num_id]);
 /// ```
-#[derive(Debug, Clone, Default)]
-pub struct Grammar {
+#[derive(Debug, Clone)]
+pub struct Grammar<T: Symbol, N: Symbol> {
     /// All symbols in the grammar: `(kind, name)`
     ///
     /// The index into this vector is the `SymbolId`.
-    pub symbols: Vec<(SymbolKind, String)>,
+    pub symbols: Vec<GrammarSymbol<T, N>>,
 
     /// For each non-terminal (by `SymbolId`), a list of production rules
     ///
@@ -55,46 +70,75 @@ pub struct Grammar {
     pub start: Option<SymbolId>,
 
     /// Internal map for deduplicating symbol entries
-    symbol_map: HashMap<(SymbolKind, String), SymbolId>,
+    symbol_map: HashMap<GrammarSymbol<T, N>, SymbolId>,
 }
 
-impl Grammar {
+impl<T: Symbol, N: Symbol> Grammar<T, N> {
     /// Creates a new, empty grammar
     ///
     /// # Returns
     /// A fresh `Grammar` instance with no symbols or rules.
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            symbols: Vec::new(),
+            rules: Vec::new(),
+            start: None,
+            symbol_map: HashMap::new(),
+        }
     }
 
     /// Adds a new symbol to the grammar
     ///
-    /// If the symbol already exists (same name and kind), its existing `SymbolId` is returned.
+    /// If the symbol already exists, its existing `SymbolId` is returned.
     /// Otherwise, it is inserted and assigned a new ID.
     ///
     /// # Parameters
-    /// - `kind`: The kind of symbol (`Terminal` or `NonTerminal`)
-    /// - `name`: The name of the symbol (used for display, debugging, and lookup)
+    /// - `sym`: The symbol to add to the grammar.
     ///
     /// # Returns
     /// A `SymbolId` for the added or existing symbol.
-    pub fn add_symbol<S: Into<String>>(&mut self, kind: SymbolKind, name: S) -> SymbolId {
-        let name = name.into();
-        let key = (kind, name);
-
-        if let Some(&id) = self.symbol_map.get(&key) {
+    pub fn add_symbol(&mut self, sym: GrammarSymbol<T, N>) -> SymbolId {
+        if let Some(&id) = self.symbol_map.get(&sym) {
             return id;
         }
 
         let id = self.symbols.len();
-        self.symbols.push(key.clone());
+        self.symbols.push(sym.clone());
 
         // Always push an empty rule list, even for terminals
         self.rules.push(Vec::new());
 
-        self.symbol_map.insert(key, id);
+        self.symbol_map.insert(sym, id);
         id
+    }
+
+    /// Adds a new terminal symbol to the grammar
+    ///
+    /// If the symbol already exists in the grammar, its existing `SymbolId` is returned.
+    /// Otherwise, it is inserted and assigned a new ID.
+    ///
+    /// # Parameters
+    /// - `term`: The terminal symbol to add to the grammar.
+    ///
+    /// # Returns
+    /// A `SymbolId` for the added or existing terminal symbol.
+    pub fn add_terminal(&mut self, term: T) -> SymbolId {
+        self.add_symbol(GrammarSymbol::Terminal(term))
+    }
+
+    /// Adds a new non-terminal symbol to the grammar
+    ///
+    /// If the symbol already exists, its existing `SymbolId` is returned.
+    /// Otherwise, it is inserted and assigned a new ID.
+    ///
+    /// # Parameters
+    /// - `non_term`: The non-terminal symbol to add to the grammar.
+    ///
+    /// # Returns
+    /// A `SymbolId` for the added or existing symbol.
+    pub fn add_non_terminal(&mut self, non_term: N) -> SymbolId {
+        self.add_symbol(GrammarSymbol::NonTerminal(non_term))
     }
 
     /// Adds a production rule to a non-terminal symbol
@@ -106,37 +150,26 @@ impl Grammar {
     /// # Panics
     /// If the given `non_terminal` ID does not refer to a non-terminal symbol.
     pub fn add_rule(&mut self, non_terminal: SymbolId, production: &[SymbolId]) {
-        if !matches!(
-            self.symbol_kind(non_terminal),
-            Some(SymbolKind::NonTerminal)
-        ) {
-            panic!("Symbol ID {non_terminal} is not a non-terminal");
-        }
+        assert!(
+            matches!(
+                self.get_symbol(non_terminal),
+                Some(GrammarSymbol::NonTerminal(_))
+            ),
+            "Symbol ID {non_terminal} is not a non-terminal"
+        );
         self.rules[non_terminal].push(production.to_vec());
     }
 
-    /// Retrieves the name of a symbol by its ID
+    /// Retrieves a symbol by its ID
     ///
     /// # Parameters
     /// - `id`: The symbol's unique ID (`SymbolId`)
     ///
     /// # Returns
-    /// An optional string slice of the symbol's name.
+    /// The symbol with the given `SymbolId`
     #[must_use]
-    pub fn symbol_name(&self, id: SymbolId) -> Option<&str> {
-        self.symbols.get(id).map(|(_, name)| name.as_str())
-    }
-
-    /// Retrieves the kind of a symbol by its ID
-    ///
-    /// # Parameters
-    /// - `id`: The symbol's unique ID (`SymbolId`)
-    ///
-    /// # Returns
-    /// An optional `SymbolKind` if the ID exists.
-    #[must_use]
-    pub fn symbol_kind(&self, id: SymbolId) -> Option<SymbolKind> {
-        self.symbols.get(id).map(|(kind, _)| *kind)
+    pub fn get_symbol(&self, id: SymbolId) -> Option<&GrammarSymbol<T, N>> {
+        self.symbols.get(id)
     }
 
     /// Sets the given symbol as the "start" symbol
@@ -151,18 +184,38 @@ impl Grammar {
     }
 }
 
+impl<T: Symbol, N: Symbol> Default for Grammar<T, N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Grammar, SymbolKind};
+    use super::{Grammar, GrammarSymbol, Symbol};
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    enum NonTerminal {
+        Expr,
+        Term,
+    }
+    impl Symbol for Terminal {}
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    enum Terminal {
+        Plus,
+        Number,
+    }
+    impl Symbol for NonTerminal {}
 
     #[test]
     fn test_add_symbol() {
         let mut grammar = Grammar::new();
 
         // Add some symbols and assert that the correct SymbolId is returned
-        let expr_id = grammar.add_symbol(SymbolKind::NonTerminal, "Expr");
-        let term_id = grammar.add_symbol(SymbolKind::NonTerminal, "Term");
-        let plus_id = grammar.add_symbol(SymbolKind::Terminal, "+");
+        let expr_id = grammar.add_non_terminal(NonTerminal::Expr);
+        let term_id = grammar.add_non_terminal(NonTerminal::Term);
+        let plus_id = grammar.add_terminal(Terminal::Plus);
 
         // Verify the symbol ids are as expected (increasing order starting from 0)
         assert_eq!(expr_id, 0);
@@ -170,25 +223,29 @@ mod tests {
         assert_eq!(plus_id, 2);
 
         // Verify the correct symbols are stored
-        assert_eq!(grammar.symbol_name(expr_id), Some("Expr"));
-        assert_eq!(grammar.symbol_name(term_id), Some("Term"));
-        assert_eq!(grammar.symbol_name(plus_id), Some("+"));
-
-        // Verify the kind of symbols
-        assert_eq!(grammar.symbol_kind(expr_id), Some(SymbolKind::NonTerminal));
-        assert_eq!(grammar.symbol_kind(term_id), Some(SymbolKind::NonTerminal));
-        assert_eq!(grammar.symbol_kind(plus_id), Some(SymbolKind::Terminal));
+        assert_eq!(
+            grammar.get_symbol(expr_id),
+            Some(&GrammarSymbol::NonTerminal(NonTerminal::Expr))
+        );
+        assert_eq!(
+            grammar.get_symbol(term_id),
+            Some(&GrammarSymbol::NonTerminal(NonTerminal::Term))
+        );
+        assert_eq!(
+            grammar.get_symbol(plus_id),
+            Some(&GrammarSymbol::Terminal(Terminal::Plus))
+        );
     }
 
     #[test]
     fn test_add_existing_symbol() {
-        let mut grammar = Grammar::new();
+        let mut grammar = Grammar::<Terminal, NonTerminal>::new();
 
         // Add symbol once
-        let expr_id1 = grammar.add_symbol(SymbolKind::NonTerminal, "Expr");
+        let expr_id1 = grammar.add_non_terminal(NonTerminal::Expr);
 
         // Add the same symbol again and assert we get the same ID
-        let expr_id2 = grammar.add_symbol(SymbolKind::NonTerminal, "Expr");
+        let expr_id2 = grammar.add_non_terminal(NonTerminal::Expr);
 
         // The ID should be the same
         assert_eq!(expr_id1, expr_id2);
@@ -198,9 +255,9 @@ mod tests {
     fn test_add_rule() {
         let mut grammar = Grammar::new();
 
-        let expr_id = grammar.add_symbol(SymbolKind::NonTerminal, "Expr");
-        let term_id = grammar.add_symbol(SymbolKind::NonTerminal, "Term");
-        let plus_id = grammar.add_symbol(SymbolKind::Terminal, "+");
+        let expr_id = grammar.add_non_terminal(NonTerminal::Expr);
+        let term_id = grammar.add_non_terminal(NonTerminal::Term);
+        let plus_id = grammar.add_terminal(Terminal::Plus);
 
         // Add a rule for Expr -> Expr + Term
         grammar.add_rule(expr_id, &[expr_id, plus_id, term_id]);
@@ -215,9 +272,9 @@ mod tests {
     fn test_add_multiple_rules() {
         let mut grammar = Grammar::new();
 
-        let expr_id = grammar.add_symbol(SymbolKind::NonTerminal, "Expr");
-        let term_id = grammar.add_symbol(SymbolKind::NonTerminal, "Term");
-        let plus_id = grammar.add_symbol(SymbolKind::Terminal, "+");
+        let expr_id = grammar.add_non_terminal(NonTerminal::Expr);
+        let term_id = grammar.add_non_terminal(NonTerminal::Term);
+        let plus_id = grammar.add_terminal(Terminal::Plus);
 
         // Add multiple rules for Expr
         grammar.add_rule(expr_id, &[expr_id, plus_id, term_id]);
@@ -236,8 +293,8 @@ mod tests {
         let result = std::panic::catch_unwind(|| {
             let mut grammar = Grammar::new();
 
-            let expr_id = grammar.add_symbol(SymbolKind::NonTerminal, "Expr");
-            let num_id = grammar.add_symbol(SymbolKind::Terminal, "num");
+            let expr_id = grammar.add_non_terminal(NonTerminal::Expr);
+            let num_id = grammar.add_terminal(Terminal::Number);
 
             grammar.add_rule(num_id, &[expr_id]);
         });
@@ -246,36 +303,29 @@ mod tests {
     }
 
     #[test]
-    fn test_symbol_kind_lookup() {
+    fn test_symbol_lookup() {
         let mut grammar = Grammar::new();
 
-        let expr_id = grammar.add_symbol(SymbolKind::NonTerminal, "Expr");
-        let num_id = grammar.add_symbol(SymbolKind::Terminal, "num");
+        let expr_id = grammar.add_non_terminal(NonTerminal::Expr);
+        let num_id = grammar.add_terminal(Terminal::Number);
 
         // Check that the symbol kinds are correctly looked up
-        assert_eq!(grammar.symbol_kind(expr_id), Some(SymbolKind::NonTerminal));
-        assert_eq!(grammar.symbol_kind(num_id), Some(SymbolKind::Terminal));
-        assert_eq!(grammar.symbol_kind(999), None); // Non-existent symbol ID
-    }
-
-    #[test]
-    fn test_symbol_name_lookup() {
-        let mut grammar = Grammar::new();
-
-        let expr_id = grammar.add_symbol(SymbolKind::NonTerminal, "Expr");
-        let num_id = grammar.add_symbol(SymbolKind::Terminal, "num");
-
-        // Check that the symbol names are correctly looked up
-        assert_eq!(grammar.symbol_name(expr_id), Some("Expr"));
-        assert_eq!(grammar.symbol_name(num_id), Some("num"));
-        assert_eq!(grammar.symbol_name(999), None); // Non-existent symbol ID
+        assert_eq!(
+            grammar.get_symbol(expr_id),
+            Some(&GrammarSymbol::NonTerminal(NonTerminal::Expr))
+        );
+        assert_eq!(
+            grammar.get_symbol(num_id),
+            Some(&GrammarSymbol::Terminal(Terminal::Number))
+        );
+        assert_eq!(grammar.get_symbol(999), None); // Non-existent symbol ID
     }
 
     #[test]
     fn test_start_symbol() {
-        let mut grammar = Grammar::new();
+        let mut grammar = Grammar::<Terminal, NonTerminal>::new();
 
-        let expr_id = grammar.add_symbol(SymbolKind::NonTerminal, "Expr");
+        let expr_id = grammar.add_non_terminal(NonTerminal::Expr);
 
         // Set the start symbol
         grammar.set_start(expr_id);
@@ -286,7 +336,7 @@ mod tests {
 
     #[test]
     fn test_empty_grammar() {
-        let grammar = Grammar::new();
+        let grammar = Grammar::<Terminal, NonTerminal>::new();
 
         // An empty grammar should have no symbols, no rules, and no start symbol
         assert_eq!(grammar.symbols.len(), 0);
@@ -298,10 +348,10 @@ mod tests {
     fn test_combined_usage() {
         let mut grammar = Grammar::new();
 
-        let expr_id = grammar.add_symbol(SymbolKind::NonTerminal, "Expr");
-        let term_id = grammar.add_symbol(SymbolKind::NonTerminal, "Term");
-        let plus_id = grammar.add_symbol(SymbolKind::Terminal, "+");
-        let num_id = grammar.add_symbol(SymbolKind::Terminal, "num");
+        let expr_id = grammar.add_non_terminal(NonTerminal::Expr);
+        let term_id = grammar.add_non_terminal(NonTerminal::Term);
+        let plus_id = grammar.add_terminal(Terminal::Plus);
+        let num_id = grammar.add_terminal(Terminal::Number);
 
         // Define grammar rules
         grammar.add_rule(expr_id, &[expr_id, plus_id, term_id]);
