@@ -156,3 +156,224 @@ impl<T: Symbol, N: Symbol> ParseTable<T, N> {
         self.len() == 0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::grammar::{Grammar, Symbol};
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    enum Terminal {
+        X,
+        Y,
+        Z,
+    }
+    impl Symbol for Terminal {}
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    enum NonTerminal {
+        S,
+        A,
+    }
+    impl Symbol for NonTerminal {}
+
+    // Helper function to create a simple grammar for testing
+    fn create_test_grammar() -> Grammar<Terminal, NonTerminal> {
+        let mut grammar = Grammar::new();
+        let n_s = grammar.add_non_terminal(NonTerminal::S);
+        let n_a = grammar.add_non_terminal(NonTerminal::A);
+        let t_x = grammar.add_terminal(Terminal::X);
+        let t_y = grammar.add_terminal(Terminal::Y);
+        let t_z = grammar.add_terminal(Terminal::Z);
+
+        grammar.add_rule(n_s, &[n_a]); // S => A
+        grammar.add_rule(n_a, &[t_x, n_a, t_y]); // A => x A y
+        grammar.add_rule(n_a, &[t_z]); // A => z
+
+        grammar
+    }
+
+    #[test]
+    fn test_new_parse_table() {
+        let grammar = create_test_grammar();
+        let table = ParseTable::new(grammar);
+
+        assert!(table.is_empty());
+        assert_eq!(table.len(), 0);
+        assert!(table.action_table.is_empty());
+        assert!(table.goto_table.is_empty());
+    }
+
+    #[test]
+    fn test_add_action() {
+        let grammar = create_test_grammar();
+        let mut table = ParseTable::new(grammar);
+
+        // Test adding a single action
+        table.add_action(0, 0, Action::Shift(1));
+        assert_eq!(table.len(), 2); // States 0 and 1 exist now
+        assert_eq!(table.get_actions(0, 0).unwrap().len(), 1);
+        assert!(table.get_actions(0, 0).unwrap().contains(&Action::Shift(1)));
+
+        // Test adding multiple actions to same state/symbol (conflict)
+        table.add_action(0, 0, Action::Reduce((0, 0)));
+        assert_eq!(table.get_actions(0, 0).unwrap().len(), 2);
+        assert!(table.get_actions(0, 0).unwrap().contains(&Action::Shift(1)));
+        assert!(table
+            .get_actions(0, 0)
+            .unwrap()
+            .contains(&Action::Reduce((0, 0))));
+
+        // Test adding action that increases state count
+        table.add_action(5, 0, Action::Shift(6));
+        assert_eq!(table.len(), 7); // Now up to state 6
+    }
+
+    #[test]
+    fn test_set_goto() {
+        let grammar = create_test_grammar();
+        let mut table = ParseTable::new(grammar);
+
+        // Test basic goto setting
+        table.set_goto(0, 0, 1);
+        assert_eq!(table.get_goto(0, 0), Some(1));
+        assert_eq!(table.len(), 2);
+
+        // Test overwriting existing goto
+        table.set_goto(0, 0, 2);
+        assert_eq!(table.get_goto(0, 0), Some(2));
+        assert_eq!(table.len(), 3);
+
+        // Test goto with higher state numbers
+        table.set_goto(10, 1, 20);
+        assert_eq!(table.get_goto(10, 1), Some(20));
+        assert_eq!(table.len(), 21);
+    }
+
+    #[test]
+    fn test_get_actions() {
+        let grammar = create_test_grammar();
+        let mut table = ParseTable::new(grammar);
+
+        // Test getting non-existent actions
+        assert!(table.get_actions(0, 0).is_none());
+
+        // Test getting existing actions
+        table.add_action(0, 0, Action::Shift(1));
+        assert_eq!(table.get_actions(0, 0).unwrap().len(), 1);
+
+        // Test getting actions for non-existent state
+        assert!(table.get_actions(1, 0).is_none());
+    }
+
+    #[test]
+    fn test_get_goto() {
+        let grammar = create_test_grammar();
+        let mut table = ParseTable::new(grammar);
+
+        // Test getting non-existent goto
+        assert!(table.get_goto(0, 0).is_none());
+
+        // Test getting existing goto
+        table.set_goto(0, 0, 1);
+        assert_eq!(table.get_goto(0, 0), Some(1));
+
+        // Test getting goto for non-existent state
+        assert!(table.get_goto(1, 0).is_none());
+    }
+
+    #[test]
+    fn test_len_and_is_empty() {
+        let grammar = create_test_grammar();
+        let mut table = ParseTable::new(grammar);
+
+        assert!(table.is_empty());
+        assert_eq!(table.len(), 0);
+
+        // Adding actions should increase state count
+        table.add_action(0, 0, Action::Shift(1));
+        assert!(!table.is_empty());
+        assert_eq!(table.len(), 2);
+
+        // Adding higher state numbers should increase count
+        table.add_action(5, 0, Action::Shift(6));
+        assert_eq!(table.len(), 7);
+
+        // Goto operations should also affect state count
+        table.set_goto(10, 0, 20);
+        assert_eq!(table.len(), 21);
+    }
+
+    #[test]
+    fn test_action_enum() {
+        // Test Action enum variants and equality
+        let shift1 = Action::Shift(1);
+        let shift2 = Action::Shift(2);
+        let reduce1 = Action::Reduce((0, 0));
+        let reduce2 = Action::Reduce((0, 1));
+        let accept = Action::Accept;
+        let error = Action::Error;
+
+        assert_eq!(shift1, Action::Shift(1));
+        assert_ne!(shift1, shift2);
+        assert_eq!(reduce1, Action::Reduce((0, 0)));
+        assert_ne!(reduce1, reduce2);
+        assert_eq!(accept, Action::Accept);
+        assert_eq!(error, Action::Error);
+        assert_ne!(shift1, reduce1);
+    }
+
+    #[test]
+    fn test_conflict_detection() {
+        let grammar = create_test_grammar();
+        let mut table = ParseTable::new(grammar);
+
+        // Add conflicting actions
+        table.add_action(0, 0, Action::Shift(1));
+        table.add_action(0, 0, Action::Reduce((0, 0)));
+
+        let actions = table.get_actions(0, 0).unwrap();
+        assert_eq!(actions.len(), 2);
+        assert!(actions.contains(&Action::Shift(1)));
+        assert!(actions.contains(&Action::Reduce((0, 0))));
+
+        // Add another conflict (shift-shift)
+        table.add_action(0, 0, Action::Shift(2));
+        let actions = table.get_actions(0, 0).unwrap();
+        assert_eq!(actions.len(), 3);
+    }
+
+    #[test]
+    fn test_accept_and_error_actions() {
+        let grammar = create_test_grammar();
+        let mut table = ParseTable::new(grammar);
+
+        table.add_action(0, 0, Action::Accept);
+        table.add_action(1, 1, Action::Error);
+
+        let accept_actions = table.get_actions(0, 0).unwrap();
+        assert_eq!(accept_actions.len(), 1);
+        assert!(accept_actions.contains(&Action::Accept));
+
+        let error_actions = table.get_actions(1, 1).unwrap();
+        assert_eq!(error_actions.len(), 1);
+        assert!(error_actions.contains(&Action::Error));
+    }
+
+    #[test]
+    fn test_rule_id_handling() {
+        let grammar = create_test_grammar();
+        let mut table = ParseTable::new(grammar);
+
+        // Test reduce actions with different rule IDs
+        table.add_action(0, 0, Action::Reduce((0, 0)));
+        table.add_action(0, 0, Action::Reduce((0, 1)));
+        table.add_action(0, 0, Action::Reduce((1, 0)));
+
+        let actions = table.get_actions(0, 0).unwrap();
+        assert_eq!(actions.len(), 3);
+        assert!(actions.contains(&Action::Reduce((0, 0))));
+        assert!(actions.contains(&Action::Reduce((0, 1))));
+        assert!(actions.contains(&Action::Reduce((1, 0))));
+    }
+}

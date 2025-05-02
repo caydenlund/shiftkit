@@ -223,10 +223,10 @@ mod tests {
         let term_id = grammar.add_non_terminal(NonTerminal::Term);
         let plus_id = grammar.add_terminal(Terminal::Plus);
 
-        // Verify the symbol ids are as expected (increasing order starting from 0)
-        assert_eq!(expr_id, 0);
-        assert_eq!(term_id, 1);
-        assert_eq!(plus_id, 2);
+        // Verify the symbol ids are as expected (increasing order starting from 1)
+        assert_eq!(expr_id, 1);
+        assert_eq!(term_id, 2);
+        assert_eq!(plus_id, 3);
 
         // Verify the correct symbols are stored
         assert_eq!(
@@ -344,9 +344,10 @@ mod tests {
     fn test_empty_grammar() {
         let grammar = Grammar::<Terminal, NonTerminal>::new();
 
-        // An empty grammar should have no symbols, no rules, and no start symbol
-        assert_eq!(grammar.symbols.len(), 0);
-        assert_eq!(grammar.rules.len(), 0);
+        // An empty grammar should have 1 symbol (end of file), no rules,
+        // and no start symbol
+        assert_eq!(grammar.symbols.len(), 1);
+        assert_eq!(grammar.rules.len(), 1);
         assert_eq!(grammar.start, None);
     }
 
