@@ -59,7 +59,7 @@ pub type SymbolId = usize;
 /// ```
 #[derive(Debug, Clone)]
 pub struct Grammar<T: Symbol, N: Symbol> {
-    /// All symbols in the grammar: `(kind, name)`
+    /// All symbols in the grammar
     ///
     /// The index into this vector is the `SymbolId`.
     pub symbols: Vec<GrammarSymbol<T, N>>,

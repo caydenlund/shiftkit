@@ -1,8 +1,7 @@
 //! # Parse Table Module
 //!
 //! This module provides data structures for representing parse tables used in
-//! LR-family parsers (LR(0), LR(1), SLR, and LALR(1)), with support for
-//! detecting and reporting parsing conflicts and ambiguities.
+//! LR-family parsers (LR(0), LR(1), SLR, and LALR(1)).
 
 use crate::grammar::{Grammar, Symbol, SymbolId};
 use std::collections::{HashMap, HashSet};
@@ -30,6 +29,45 @@ pub enum Action {
 }
 
 /// A parse table for LR-family parsers
+///
+/// # Example
+/// ```
+/// # use shiftkit::grammar::{Grammar, Symbol};
+/// # use shiftkit::parse_table::{ParseTable, Action};
+/// # #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// # enum Terminal {
+/// #     Plus,
+/// #     Number,
+/// # }
+/// # impl Symbol for Terminal {}
+/// # #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// # enum NonTerminal {
+/// #     Expr,
+/// # }
+/// # impl Symbol for NonTerminal {}
+/// let mut grammar = Grammar::new();
+/// let t_eof = 0; // special end-of-file symbol
+/// let n_expr = grammar.add_non_terminal(NonTerminal::Expr);
+/// let t_plus = grammar.add_terminal(Terminal::Plus);
+/// let t_num = grammar.add_terminal(Terminal::Number);
+/// grammar.add_rule(n_expr, &[n_expr, t_plus, n_expr]);
+/// grammar.add_rule(n_expr, &[t_num]);
+/// let mut table = ParseTable::new(grammar);
+/// table.add_action(0, t_num, Action::Shift(1));
+/// table.set_goto(0, n_expr, 2);
+///
+/// table.add_action(1, t_plus, Action::Shift(3));
+/// table.add_action(1, t_eof, Action::Accept);
+///
+/// table.add_action(2, t_plus, Action::Reduce((n_expr, 1)));
+/// table.add_action(2, t_eof, Action::Reduce((n_expr, 1)));
+///
+/// table.add_action(3, t_num, Action::Shift(2));
+/// table.set_goto(3, n_expr, 4);
+///
+/// table.add_action(4, t_plus, Action::Reduce((n_expr, 0)));
+/// table.add_action(4, t_eof, Action::Reduce((n_expr, 0)));
+/// ```
 #[derive(Debug, Clone)]
 pub struct ParseTable<T: Symbol, N: Symbol> {
     /// The grammar this parse table is built from
